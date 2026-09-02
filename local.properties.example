@@ -1,0 +1,14 @@
+# Copy this file to local.properties and replace each placeholder locally.
+# local.properties is ignored by Git and must never be committed.
+sdk.dir=/absolute/path/to/Android/sdk
+
+photoFrame.smb.host=nas.example.local
+photoFrame.smb.fallbackHost=192.0.2.10
+photoFrame.smb.share=photos
+photoFrame.smb.path=Photo Frame
+photoFrame.smb.username=photo-frame-user
+
+photoFrame.weather.locationName=Example City
+photoFrame.weather.latitude=47.0000
+photoFrame.weather.longitude=-122.0000
+photoFrame.display.timeZone=America/Los_Angeles

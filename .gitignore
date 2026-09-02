@@ -1,0 +1,9 @@
+.gradle/
+.idea/
+**/build/
+local.properties
+HANDOFF.md
+*.jks
+*.keystore
+*.iml
+.DS_Store
