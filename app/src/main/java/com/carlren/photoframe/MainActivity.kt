@@ -1,5 +1,6 @@
 package com.carlren.photoframe
 
+import android.content.res.Configuration
 import android.os.Bundle
 import android.view.View
 import android.view.WindowManager
@@ -32,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -264,12 +266,16 @@ fun textFieldColors() = OutlinedTextFieldDefaults.colors(
 fun PhotoFrameScreen(creds: SmpCredentials, onLogout: () -> Unit) {
     val context = LocalContext.current
     var remotePhotos by remember { mutableStateOf<List<SmbPhotoRepository.SmbPhoto>>(emptyList()) }
-    var localFiles by remember { mutableStateOf<List<File>>(emptyList()) }
+    var allLocalFiles by remember { mutableStateOf<List<File>>(emptyList()) }
+    var displayFiles by remember { mutableStateOf<List<File>>(emptyList()) }
     var currentIndex by remember { mutableStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var showControls by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    // Auto-detect portrait vs landscape display (Portal Plus portrait vs Portal+ landscape)
+    val configuration = LocalConfiguration.current
+    val isPortraitDisplay = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
     // Premium fonts
     val displayFont = FontFamily(Font(R.font.plus_jakarta_sans))
     val timeFont = FontFamily(Font(R.font.inter))
@@ -295,7 +301,8 @@ fun PhotoFrameScreen(creds: SmpCredentials, onLogout: () -> Unit) {
         }
     }
 
-    // Initial load + periodic refresh every 60s
+    // Initial load + periodic refresh every 60s — downloads ALL images (both orientations)
+    // Filtering to portrait/landscape happens in the orientation effect below so we keep full cache.
     LaunchedEffect(creds) {
         while (true) {
             try {
@@ -304,17 +311,15 @@ fun PhotoFrameScreen(creds: SmpCredentials, onLogout: () -> Unit) {
                 val remotes = SmbPhotoRepository.listRemotePhotos(creds)
                 remotePhotos = remotes
                 if (remotes.isEmpty()) {
-                    localFiles = emptyList()
+                    allLocalFiles = emptyList()
                     error = "No photos found in the configured folder."
                 } else {
                     val files = SmbPhotoRepository.ensurePhotosCached(context, creds, remotes)
-                    // Keep order shuffled? Keep sorted but slideshow shuffles via index random? For now sequential; add shuffle toggle later
-                    localFiles = files
+                    allLocalFiles = files
                     if (files.isEmpty() && remotes.isNotEmpty()) {
                         error = "Failed to download photos (${remotes.size} found)."
-                    } else {
-                        if (currentIndex >= files.size) currentIndex = 0
                     }
+                    // displayFiles filtering handled by orientation effect; index clamp there
                 }
             } catch (e: Exception) {
                 error = "Refresh failed. Check the connection and settings."
@@ -325,12 +330,38 @@ fun PhotoFrameScreen(creds: SmpCredentials, onLogout: () -> Unit) {
         }
     }
 
-    // Slideshow timer 10s
-    LaunchedEffect(localFiles.size) {
+    // Orientation-aware filtering: portrait display → portrait photos only, landscape → landscape only.
+    // Squares are shown on both. Re-runs when files change or device orientation changes.
+    LaunchedEffect(allLocalFiles, isPortraitDisplay) {
+        OrientationHelper.logDeviceInfo(context, isPortraitDisplay)
+        if (allLocalFiles.isEmpty()) {
+            displayFiles = emptyList()
+            currentIndex = 0
+            return@LaunchedEffect
+        }
+        val filtered = withContext(Dispatchers.IO) {
+            OrientationHelper.filterByDisplayOrientation(allLocalFiles, isPortraitDisplay)
+        }
+        displayFiles = filtered
+        if (currentIndex >= filtered.size) currentIndex = 0
+        // Surface helpful message when no matching orientation photos exist
+        if (filtered.isEmpty() && allLocalFiles.isNotEmpty()) {
+            error = if (isPortraitDisplay) {
+                "No portrait photos found – add portrait images to the folder. (${allLocalFiles.size} landscape available)"
+            } else {
+                "No landscape photos found – add landscape images to the folder. (${allLocalFiles.size} portrait available)"
+            }
+        } else if (filtered.isNotEmpty() && (error?.contains("No portrait photos") == true || error?.contains("No landscape photos") == true)) {
+            error = null
+        }
+    }
+
+    // Slideshow timer 10s — iterates over orientation-filtered list
+    LaunchedEffect(displayFiles.size) {
         while (true) {
             delay(10_000L)
-            if (localFiles.size > 1) {
-                currentIndex = (currentIndex + 1) % localFiles.size
+            if (displayFiles.size > 1) {
+                currentIndex = (currentIndex + 1) % displayFiles.size
             }
         }
     }
@@ -348,18 +379,18 @@ fun PhotoFrameScreen(creds: SmpCredentials, onLogout: () -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .pointerInput(localFiles.size) {
+            .pointerInput(displayFiles.size) {
                 detectHorizontalDragGestures(
                     onDragStart = { swipeAccum = 0f },
                     onHorizontalDrag = { _, amount -> swipeAccum += amount },
                     onDragEnd = {
-                        if (kotlin.math.abs(swipeAccum) > 80f && localFiles.isNotEmpty()) {
+                        if (kotlin.math.abs(swipeAccum) > 80f && displayFiles.isNotEmpty()) {
                             if (swipeAccum > 0) {
                                 // left-to-right → next (as requested)
-                                currentIndex = (currentIndex + 1) % localFiles.size
+                                currentIndex = (currentIndex + 1) % displayFiles.size
                             } else {
                                 // right-to-left → previous
-                                currentIndex = (currentIndex - 1 + localFiles.size) % localFiles.size
+                                currentIndex = (currentIndex - 1 + displayFiles.size) % displayFiles.size
                             }
                         }
                         swipeAccum = 0f
@@ -370,7 +401,7 @@ fun PhotoFrameScreen(creds: SmpCredentials, onLogout: () -> Unit) {
             .clickable { showControls = !showControls }
     ) {
         when {
-            isLoading && localFiles.isEmpty() -> {
+            isLoading && displayFiles.isEmpty() && allLocalFiles.isEmpty() -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         CircularProgressIndicator(color = Color.White)
@@ -378,8 +409,8 @@ fun PhotoFrameScreen(creds: SmpCredentials, onLogout: () -> Unit) {
                     }
                 }
             }
-            localFiles.isNotEmpty() -> {
-                val file = localFiles[currentIndex.coerceIn(0, localFiles.size - 1)]
+            displayFiles.isNotEmpty() -> {
+                val file = displayFiles[currentIndex.coerceIn(0, displayFiles.size - 1)]
                 AnimatedContent(
                     targetState = file,
                     transitionSpec = {
@@ -454,7 +485,7 @@ fun PhotoFrameScreen(creds: SmpCredentials, onLogout: () -> Unit) {
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         Text(
-                            "${currentIndex + 1} / ${localFiles.size}",
+                            "${currentIndex + 1} / ${displayFiles.size}",
                             color = Color.White,
                             fontSize = 26.sp,
                             fontWeight = FontWeight.Medium,
@@ -527,7 +558,20 @@ fun PhotoFrameScreen(creds: SmpCredentials, onLogout: () -> Unit) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(32.dp)) {
                         Text("📷", fontSize = 48.sp)
                         Text(error ?: "No photos", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Medium)
-                        Text("Check the configured SMB photo folder.", color = Color(0xFF888888), fontSize = 12.sp)
+                        Text(
+                            if (allLocalFiles.isNotEmpty() && displayFiles.isEmpty()) {
+                                if (isPortraitDisplay) "Add portrait photos to see them here" else "Add landscape photos to see them here"
+                            } else "Check the configured SMB photo folder.",
+                            color = Color(0xFF888888),
+                            fontSize = 12.sp
+                        )
+                        if (allLocalFiles.isNotEmpty()) {
+                            Text(
+                                "${displayFiles.size} of ${allLocalFiles.size} photos match ${if (isPortraitDisplay) "portrait" else "landscape"} display",
+                                color = Color(0xFF666666),
+                                fontSize = 11.sp
+                            )
+                        }
                         Spacer(Modifier.height(8.dp))
                         Button(onClick = {
                             scope.launch {
@@ -535,7 +579,7 @@ fun PhotoFrameScreen(creds: SmpCredentials, onLogout: () -> Unit) {
                                 try {
                                     val remotes = SmbPhotoRepository.listRemotePhotos(creds)
                                     remotePhotos = remotes
-                                    localFiles = SmbPhotoRepository.ensurePhotosCached(context, creds, remotes)
+                                    allLocalFiles = SmbPhotoRepository.ensurePhotosCached(context, creds, remotes)
                                 } catch (e: Exception) { error = e.message }
                                 isLoading = false
                             }
@@ -545,7 +589,7 @@ fun PhotoFrameScreen(creds: SmpCredentials, onLogout: () -> Unit) {
             }
         }
 
-        // Controls overlay (tap to show)
+        // Controls overlay (tap to show) — shows orientation-aware counts
         if (showControls) {
             Box(
                 modifier = Modifier
@@ -555,7 +599,16 @@ fun PhotoFrameScreen(creds: SmpCredentials, onLogout: () -> Unit) {
                     .padding(12.dp)
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("${localFiles.size} photos", color = Color.White, fontSize = 12.sp)
+                    Text(
+                        "${displayFiles.size} / ${allLocalFiles.size} photos • ${if (isPortraitDisplay) "portrait" else "landscape"} display",
+                        color = Color.White,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        if (isPortraitDisplay) "Showing portrait only" else "Showing landscape only",
+                        color = Color(0xFFAAAAAA),
+                        fontSize = 11.sp
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = {
                             scope.launch {
@@ -564,7 +617,7 @@ fun PhotoFrameScreen(creds: SmpCredentials, onLogout: () -> Unit) {
                                 try {
                                     val remotes = SmbPhotoRepository.listRemotePhotos(creds)
                                     remotePhotos = remotes
-                                    localFiles = SmbPhotoRepository.ensurePhotosCached(context, creds, remotes)
+                                    allLocalFiles = SmbPhotoRepository.ensurePhotosCached(context, creds, remotes)
                                     currentIndex = 0
                                 } catch (e: Exception) { error = e.message }
                                 isLoading = false
