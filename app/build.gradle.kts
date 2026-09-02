@@ -26,6 +26,7 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "SMB_DEFAULT_HOST", localConfig("photoFrame.smb.host").asBuildConfigString())
         buildConfigField("String", "SMB_DEFAULT_SHARE", localConfig("photoFrame.smb.share").asBuildConfigString())
         buildConfigField("String", "SMB_DEFAULT_PATH", localConfig("photoFrame.smb.path").asBuildConfigString())
@@ -68,4 +69,8 @@ dependencies {
     implementation("com.hierynomus:smbj:0.12.1")
     implementation("org.slf4j:slf4j-api:1.7.36")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
+    // Unit test
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.11.1")
+    testImplementation("androidx.test:core:1.5.0")
 }
