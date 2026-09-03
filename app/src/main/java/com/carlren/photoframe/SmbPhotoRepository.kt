@@ -14,13 +14,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 
 object SmbPhotoRepository {
     private const val TAG = "SmbPhotoRepository"
     private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "heic", "heif", "webp", "bmp")
     private val fallbackHost = BuildConfig.SMB_FALLBACK_HOST.trim()
 
-    data class SmbPhoto(val name: String, val remotePath: String)
+    data class SmbPhoto(val name: String, val remotePath: String, val sizeBytes: Long)
 
     suspend fun testConnection(creds: SmpCredentials): Result<Int> = withContext(Dispatchers.IO) {
         try {
@@ -93,7 +94,7 @@ object SmbPhotoRepository {
                 val ext = name.substringAfterLast('.', "").lowercase()
                 if (ext in IMAGE_EXTENSIONS) {
                     val remotePath = if (folder.isEmpty()) name else "$folder/$name"
-                    photos.add(SmbPhoto(name, remotePath))
+                    photos.add(SmbPhoto(name, remotePath, info.endOfFile))
                 }
             }
             photos.sortedBy { it.name.lowercase() }
@@ -127,7 +128,12 @@ object SmbPhotoRepository {
         try {
             val cacheDir = File(context.cacheDir, "smb_photos").apply { mkdirs() }
             val localFile = File(cacheDir, photo.name)
-            if (localFile.exists() && localFile.length() > 0) return@withContext localFile
+            if (
+                localFile.exists() &&
+                    localFile.length() > 0 &&
+                    (photo.sizeBytes <= 0 || localFile.length() == photo.sizeBytes)
+            ) return@withContext localFile
+            val partialFile = File(cacheDir, "${photo.name}.part").apply { delete() }
             val client = SMBClient()
             var connection: com.hierynomus.smbj.connection.Connection? = null
             var session: com.hierynomus.smbj.session.Session? = null
@@ -146,7 +152,7 @@ object SmbPhotoRepository {
                     setOf(SMB2CreateOptions.FILE_SEQUENTIAL_ONLY)
                 )
                 smbFile.use { f ->
-                    FileOutputStream(localFile).use { out ->
+                    FileOutputStream(partialFile).use { out ->
                         val input = f.inputStream
                         val buffer = ByteArray(64 * 1024)
                         var read: Int
@@ -154,6 +160,15 @@ object SmbPhotoRepository {
                             out.write(buffer, 0, read)
                         }
                     }
+                }
+                if (photo.sizeBytes > 0 && partialFile.length() != photo.sizeBytes) {
+                    throw IOException("Incomplete SMB download")
+                }
+                if (localFile.exists() && !localFile.delete()) {
+                    throw IOException("Unable to replace cached photo")
+                }
+                if (!partialFile.renameTo(localFile)) {
+                    throw IOException("Unable to finalize cached photo")
                 }
                 Log.d(TAG, "Downloaded photo to app cache")
                 localFile
@@ -164,6 +179,7 @@ object SmbPhotoRepository {
                 try { client.close() } catch (_: Exception) {}
             }
         } catch (e: Exception) {
+            File(context.cacheDir, "smb_photos/${photo.name}.part").delete()
             Log.e(TAG, "Photo download failed (${e.javaClass.simpleName})")
             null
         }
@@ -177,7 +193,9 @@ object SmbPhotoRepository {
         val files = mutableListOf<File>()
         for (photo in remotePhotos) {
             val f = downloadPhoto(context, creds, photo)
-            if (f != null && f.exists()) files.add(f)
+            if (f != null && f.exists()) {
+                files.add(DisplayPhotoOptimizer.prepare(context, f) ?: f)
+            }
         }
         files
     }
@@ -186,6 +204,8 @@ object SmbPhotoRepository {
         try {
             val dir = File(context.cacheDir, "smb_photos")
             dir.listFiles()?.forEach { it.delete() }
+            val displayDir = File(context.cacheDir, DisplayPhotoOptimizer.CACHE_DIR)
+            displayDir.listFiles()?.forEach { it.delete() }
         } catch (_: Exception) {}
     }
 }

@@ -7,7 +7,6 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
@@ -19,17 +18,20 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -41,11 +43,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.util.Log
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.exifinterface.media.ExifInterface
 import coil.compose.AsyncImage
+import coil.imageLoader
 import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -80,12 +82,7 @@ class MainActivity : ComponentActivity() {
                 if (hasCreds && creds != null) {
                     PhotoFrameScreen(
                         creds = creds!!,
-                        onLogout = {
-                            CredentialStore.clear(this)
-                            SmbPhotoRepository.clearCache(this)
-                            hasCreds = false
-                            creds = null
-                        }
+                        onExit = { finishAndRemoveTask() }
                     )
                 } else {
                     LoginScreen(
@@ -263,7 +260,7 @@ fun textFieldColors() = OutlinedTextFieldDefaults.colors(
 )
 
 @Composable
-fun PhotoFrameScreen(creds: SmpCredentials, onLogout: () -> Unit) {
+fun PhotoFrameScreen(creds: SmpCredentials, onExit: () -> Unit) {
     val context = LocalContext.current
     var remotePhotos by remember { mutableStateOf<List<SmbPhotoRepository.SmbPhoto>>(emptyList()) }
     var allLocalFiles by remember { mutableStateOf<List<File>>(emptyList()) }
@@ -271,7 +268,7 @@ fun PhotoFrameScreen(creds: SmpCredentials, onLogout: () -> Unit) {
     var currentIndex by remember { mutableStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(true) }
-    var showControls by remember { mutableStateOf(false) }
+    var showExitButton by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     // Auto-detect portrait vs landscape display (Portal Plus portrait vs Portal+ landscape)
     val configuration = LocalConfiguration.current
@@ -366,11 +363,11 @@ fun PhotoFrameScreen(creds: SmpCredentials, onLogout: () -> Unit) {
         }
     }
 
-    // Auto-hide controls after 4s
-    LaunchedEffect(showControls) {
-        if (showControls) {
+    // Auto-hide the exit affordance after 4s.
+    LaunchedEffect(showExitButton) {
+        if (showExitButton) {
             delay(4000L)
-            showControls = false
+            showExitButton = false
         }
     }
 
@@ -398,7 +395,7 @@ fun PhotoFrameScreen(creds: SmpCredentials, onLogout: () -> Unit) {
                     onDragCancel = { swipeAccum = 0f }
                 )
             }
-            .clickable { showControls = !showControls }
+            .clickable { showExitButton = !showExitButton }
     ) {
         when {
             isLoading && displayFiles.isEmpty() && allLocalFiles.isEmpty() -> {
@@ -415,7 +412,7 @@ fun PhotoFrameScreen(creds: SmpCredentials, onLogout: () -> Unit) {
                     targetState = file,
                     transitionSpec = {
                         (fadeIn(animationSpec = tween(1100, easing = FastOutSlowInEasing)) +
-                            scaleIn(initialScale = 0.96f, animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessVeryLow))
+                            scaleIn(initialScale = 1.02f, animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessVeryLow))
                             ) togetherWith
                             (fadeOut(animationSpec = tween(800)) +
                                 scaleOut(targetScale = 1.04f, animationSpec = tween(800, easing = FastOutSlowInEasing)))
@@ -435,43 +432,25 @@ fun PhotoFrameScreen(creds: SmpCredentials, onLogout: () -> Unit) {
                         label = "kenBurns"
                     )
                     Box(Modifier.fillMaxSize().background(Color.Black)) {
-                        // Blurred background — Cached, non-blocking, uniform (fixes black-bar flash)
-                        val blurRequest = remember(f) {
+                        // Display-ready files are pre-scaled once and decoded from Coil's memory cache.
+                        // Crop fills every edge from the first frame; Ken Burns adds a subtle zoom.
+                        val displayRequest = remember(f) {
                             ImageRequest.Builder(context)
                                 .data(f)
-                                .transformations(BlurTransformation(context, radius = 18f, sampling = 6f))
-                                .memoryCacheKey("blur-${f.name}")
-                                .diskCacheKey("blur-${f.name}")
+                                .size(DisplayPhotoOptimizer.MAX_EDGE)
+                                .memoryCacheKey("display-${f.name}-${f.length()}-${f.lastModified()}")
                                 .crossfade(false)
-                                .allowHardware(false)
                                 .build()
                         }
                         AsyncImage(
-                            model = blurRequest,
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop,
-                            alpha = 0.95f
-                        )
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.18f))
-                        )
-                        // Sharp foreground — Fit, with Ken Burns scale, clipped to bounds for premium depth
-                        Box(
-                            Modifier
+                            model = displayRequest,
+                            contentDescription = f.name,
+                            modifier = Modifier
                                 .fillMaxSize()
                                 .clip(RoundedCornerShape(0.dp))
-                                .graphicsLayer(scaleX = kenScale, scaleY = kenScale)
-                        ) {
-                            AsyncImage(
-                                model = f,
-                                contentDescription = f.name,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Fit
-                            )
-                        }
+                                .graphicsLayer(scaleX = kenScale, scaleY = kenScale),
+                            contentScale = ContentScale.Crop
+                        )
                     }
                 }
                 // Premium bottom status indicator — 2x size, uniform shade (no double shadow)
@@ -589,47 +568,52 @@ fun PhotoFrameScreen(creds: SmpCredentials, onLogout: () -> Unit) {
             }
         }
 
-        // Controls overlay (tap to show) — shows orientation-aware counts
-        if (showControls) {
+        // A tap reveals one unambiguous action: close the photo frame.
+        if (showExitButton) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(16.dp)
-                    .background(Color(0xCC1E1E1E), RoundedCornerShape(12.dp))
-                    .padding(12.dp)
+                    .padding(24.dp)
+                    .size(64.dp)
+                    .background(Color(0x99000000), CircleShape)
+                    .border(1.dp, Color.White.copy(alpha = 0.45f), CircleShape)
+                    .clickable(onClick = onExit),
+                contentAlignment = Alignment.Center
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "${displayFiles.size} / ${allLocalFiles.size} photos • ${if (isPortraitDisplay) "portrait" else "landscape"} display",
+                Canvas(Modifier.size(26.dp)) {
+                    val inset = 3.dp.toPx()
+                    val stroke = 3.dp.toPx()
+                    drawLine(
                         color = Color.White,
-                        fontSize = 12.sp
+                        start = androidx.compose.ui.geometry.Offset(inset, inset),
+                        end = androidx.compose.ui.geometry.Offset(size.width - inset, size.height - inset),
+                        strokeWidth = stroke,
+                        cap = StrokeCap.Round
                     )
-                    Text(
-                        if (isPortraitDisplay) "Showing portrait only" else "Showing landscape only",
-                        color = Color(0xFFAAAAAA),
-                        fontSize = 11.sp
+                    drawLine(
+                        color = Color.White,
+                        start = androidx.compose.ui.geometry.Offset(size.width - inset, inset),
+                        end = androidx.compose.ui.geometry.Offset(inset, size.height - inset),
+                        strokeWidth = stroke,
+                        cap = StrokeCap.Round
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = {
-                            scope.launch {
-                                SmbPhotoRepository.clearCache(context)
-                                isLoading = true
-                                try {
-                                    val remotes = SmbPhotoRepository.listRemotePhotos(creds)
-                                    remotePhotos = remotes
-                                    allLocalFiles = SmbPhotoRepository.ensurePhotosCached(context, creds, remotes)
-                                    currentIndex = 0
-                                } catch (e: Exception) { error = e.message }
-                                isLoading = false
-                                showControls = false
-                            }
-                        }) { Text("Refresh", fontSize = 12.sp) }
-                        Button(
-                            onClick = onLogout,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD44D4D))
-                        ) { Text("Logout", fontSize = 12.sp) }
-                    }
                 }
+            }
+        }
+
+        // Decode the next display-sized file before the slideshow advances.
+        if (displayFiles.size > 1) {
+            val nextFile = displayFiles[(currentIndex + 1) % displayFiles.size]
+            LaunchedEffect(nextFile) {
+                context.imageLoader.enqueue(
+                    ImageRequest.Builder(context)
+                        .data(nextFile)
+                        .size(DisplayPhotoOptimizer.MAX_EDGE)
+                        .memoryCacheKey(
+                            "display-${nextFile.name}-${nextFile.length()}-${nextFile.lastModified()}"
+                        )
+                        .build()
+                )
             }
         }
     }
