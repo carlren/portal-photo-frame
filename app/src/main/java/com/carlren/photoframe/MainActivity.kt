@@ -411,11 +411,13 @@ fun PhotoFrameScreen(creds: SmpCredentials, onExit: () -> Unit) {
                 AnimatedContent(
                     targetState = file,
                     transitionSpec = {
+                        val entranceScale = if (isPortraitDisplay) 1f else 1.02f
+                        val exitScale = if (isPortraitDisplay) 1f else 1.04f
                         (fadeIn(animationSpec = tween(1100, easing = FastOutSlowInEasing)) +
-                            scaleIn(initialScale = 1.02f, animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessVeryLow))
+                            scaleIn(initialScale = entranceScale, animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessVeryLow))
                             ) togetherWith
                             (fadeOut(animationSpec = tween(800)) +
-                                scaleOut(targetScale = 1.04f, animationSpec = tween(800, easing = FastOutSlowInEasing)))
+                                scaleOut(targetScale = exitScale, animationSpec = tween(800, easing = FastOutSlowInEasing)))
                     },
                     label = "applePhotoTransition"
                 ) { f ->
@@ -432,8 +434,39 @@ fun PhotoFrameScreen(creds: SmpCredentials, onExit: () -> Unit) {
                         label = "kenBurns"
                     )
                     Box(Modifier.fillMaxSize().background(Color.Black)) {
-                        // Display-ready files are pre-scaled once and decoded from Coil's memory cache.
-                        // Crop fills every edge from the first frame; Ken Burns adds a subtle zoom.
+                        // Portrait Portal screens preserve the whole photo and fill their shallow
+                        // top/bottom letterbox with a low-resolution blur. Landscape keeps the
+                        // edge-filling crop requested for the fixed landscape Portal+.
+                        if (isPortraitDisplay) {
+                            val blurRequest = remember(f) {
+                                ImageRequest.Builder(context)
+                                    .data(f)
+                                    .size(512)
+                                    .transformations(BlurTransformation(context))
+                                    .memoryCacheKey(
+                                        "portrait-blur-${f.name}-${f.length()}-${f.lastModified()}"
+                                    )
+                                    .diskCacheKey(
+                                        "portrait-blur-${f.name}-${f.length()}-${f.lastModified()}"
+                                    )
+                                    .allowHardware(false)
+                                    .crossfade(false)
+                                    .build()
+                            }
+                            AsyncImage(
+                                model = blurRequest,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop,
+                                alpha = 0.82f
+                            )
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.12f))
+                            )
+                        }
+
                         val displayRequest = remember(f) {
                             ImageRequest.Builder(context)
                                 .data(f)
@@ -448,8 +481,15 @@ fun PhotoFrameScreen(creds: SmpCredentials, onExit: () -> Unit) {
                             modifier = Modifier
                                 .fillMaxSize()
                                 .clip(RoundedCornerShape(0.dp))
-                                .graphicsLayer(scaleX = kenScale, scaleY = kenScale),
-                            contentScale = ContentScale.Crop
+                                .graphicsLayer(
+                                    scaleX = if (isPortraitDisplay) 1f else kenScale,
+                                    scaleY = if (isPortraitDisplay) 1f else kenScale
+                                ),
+                            contentScale = if (isPortraitDisplay) {
+                                ContentScale.Fit
+                            } else {
+                                ContentScale.Crop
+                            }
                         )
                     }
                 }
@@ -604,7 +644,7 @@ fun PhotoFrameScreen(creds: SmpCredentials, onExit: () -> Unit) {
         // Decode the next display-sized file before the slideshow advances.
         if (displayFiles.size > 1) {
             val nextFile = displayFiles[(currentIndex + 1) % displayFiles.size]
-            LaunchedEffect(nextFile) {
+            LaunchedEffect(nextFile, isPortraitDisplay) {
                 context.imageLoader.enqueue(
                     ImageRequest.Builder(context)
                         .data(nextFile)
@@ -614,6 +654,20 @@ fun PhotoFrameScreen(creds: SmpCredentials, onExit: () -> Unit) {
                         )
                         .build()
                 )
+                if (isPortraitDisplay) {
+                    val blurKey =
+                        "portrait-blur-${nextFile.name}-${nextFile.length()}-${nextFile.lastModified()}"
+                    context.imageLoader.enqueue(
+                        ImageRequest.Builder(context)
+                            .data(nextFile)
+                            .size(512)
+                            .transformations(BlurTransformation(context))
+                            .memoryCacheKey(blurKey)
+                            .diskCacheKey(blurKey)
+                            .allowHardware(false)
+                            .build()
+                    )
+                }
             }
         }
     }
