@@ -339,8 +339,16 @@ fun PhotoFrameScreen(creds: SmpCredentials, onExit: () -> Unit) {
         val filtered = withContext(Dispatchers.IO) {
             OrientationHelper.filterByDisplayOrientation(allLocalFiles, isPortraitDisplay)
         }
-        displayFiles = filtered
-        if (currentIndex >= filtered.size) currentIndex = 0
+        val samePhotoSet = displayFiles.size == filtered.size &&
+            displayFiles.map(File::getAbsolutePath).toSet() ==
+            filtered.map(File::getAbsolutePath).toSet()
+        if (!samePhotoSet) {
+            val previouslyShown = displayFiles.getOrNull(currentIndex)
+            displayFiles = randomizedPhotoOrder(filtered, previouslyShown)
+            currentIndex = 0
+        } else if (currentIndex >= filtered.size) {
+            currentIndex = 0
+        }
         // Surface helpful message when no matching orientation photos exist
         if (filtered.isEmpty() && allLocalFiles.isNotEmpty()) {
             error = if (isPortraitDisplay) {
@@ -353,13 +361,23 @@ fun PhotoFrameScreen(creds: SmpCredentials, onExit: () -> Unit) {
         }
     }
 
-    // Slideshow timer 10s — iterates over orientation-filtered list
+    fun showNextPhoto() {
+        val photos = displayFiles
+        if (photos.size < 2) return
+        if (currentIndex >= photos.lastIndex) {
+            val previouslyShown = photos[currentIndex.coerceIn(0, photos.lastIndex)]
+            displayFiles = randomizedPhotoOrder(photos, previouslyShown)
+            currentIndex = 0
+        } else {
+            currentIndex += 1
+        }
+    }
+
+    // Slideshow timer 10s — reshuffles after every complete pass.
     LaunchedEffect(displayFiles.size) {
         while (true) {
             delay(10_000L)
-            if (displayFiles.size > 1) {
-                currentIndex = (currentIndex + 1) % displayFiles.size
-            }
+            showNextPhoto()
         }
     }
 
@@ -384,7 +402,7 @@ fun PhotoFrameScreen(creds: SmpCredentials, onExit: () -> Unit) {
                         if (kotlin.math.abs(swipeAccum) > 80f && displayFiles.isNotEmpty()) {
                             if (swipeAccum > 0) {
                                 // left-to-right → next (as requested)
-                                currentIndex = (currentIndex + 1) % displayFiles.size
+                                showNextPhoto()
                             } else {
                                 // right-to-left → previous
                                 currentIndex = (currentIndex - 1 + displayFiles.size) % displayFiles.size

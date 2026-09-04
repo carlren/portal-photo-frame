@@ -24,8 +24,8 @@ android {
         applicationId = "com.carlren.photoframe"
         minSdk = 28
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.2.0"
+        versionCode = 4
+        versionName = "1.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "SMB_DEFAULT_HOST", localConfig("photoFrame.smb.host").asBuildConfigString())
         buildConfigField("String", "SMB_DEFAULT_SHARE", localConfig("photoFrame.smb.share").asBuildConfigString())
