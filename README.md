@@ -15,3 +15,9 @@ The password is never placed in a build configuration file. Enter it in the app 
 ## Configuration
 
 The optional `photoFrame.smb.fallbackHost` is used when an mDNS `.local` hostname cannot be resolved. Leave the weather latitude and longitude blank to disable weather fetching. If `photoFrame.display.timeZone` is blank, the device timezone is used.
+
+## License
+
+Except for the bundled fonts, this project is licensed under the MIT License. See `LICENSE`.
+
+Inter and Plus Jakarta Sans are distributed under the SIL Open Font License, Version 1.1. Their copyright notices and license text are in `FONT_LICENSES.md`.

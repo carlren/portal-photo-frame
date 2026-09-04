@@ -3,7 +3,16 @@
 **/build/
 local.properties
 HANDOFF.md
+.env
+.env.*
+!.env.example
+secrets.properties
+google-services.json
 *.jks
 *.keystore
+*.pem
+*.p12
+*.pfx
+*.key
 *.iml
 .DS_Store
