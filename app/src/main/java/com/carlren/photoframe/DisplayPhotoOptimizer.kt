@@ -13,7 +13,7 @@ import kotlin.math.roundToInt
 /** Creates a compact, correctly oriented display copy so slideshow transitions never decode originals. */
 object DisplayPhotoOptimizer {
     const val MAX_EDGE = 2560
-    const val CACHE_DIR = "smb_photos_display"
+    const val CACHE_DIR = "vps_photos_display"
     private const val JPEG_QUALITY = 92
     private const val TAG = "PhotoFrame"
 

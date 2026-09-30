@@ -24,14 +24,12 @@ android {
         applicationId = "com.carlren.photoframe"
         minSdk = 28
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.3.0"
+        versionCode = 5
+        versionName = "1.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "SMB_DEFAULT_HOST", localConfig("photoFrame.smb.host").asBuildConfigString())
-        buildConfigField("String", "SMB_DEFAULT_SHARE", localConfig("photoFrame.smb.share").asBuildConfigString())
-        buildConfigField("String", "SMB_DEFAULT_PATH", localConfig("photoFrame.smb.path").asBuildConfigString())
-        buildConfigField("String", "SMB_DEFAULT_USERNAME", localConfig("photoFrame.smb.username").asBuildConfigString())
-        buildConfigField("String", "SMB_FALLBACK_HOST", localConfig("photoFrame.smb.fallbackHost").asBuildConfigString())
+        val defaultVpsUrl = localConfig("photoFrame.vps.baseUrl").ifBlank { "https://example.com/photoframe" }
+        buildConfigField("String", "VPS_BASE_URL", defaultVpsUrl.asBuildConfigString())
+        buildConfigField("String", "VPS_DEFAULT_USERNAME", localConfig("photoFrame.vps.username").asBuildConfigString())
         buildConfigField("String", "WEATHER_LOCATION_NAME", localConfig("photoFrame.weather.locationName").asBuildConfigString())
         buildConfigField("String", "WEATHER_LATITUDE", localConfig("photoFrame.weather.latitude").asBuildConfigString())
         buildConfigField("String", "WEATHER_LONGITUDE", localConfig("photoFrame.weather.longitude").asBuildConfigString())
@@ -65,9 +63,6 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
     // EncryptedSharedPreferences for credential storage
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
-    // SMBJ for Synology SMB2/3 - brings its own bcprov-jdk18on
-    implementation("com.hierynomus:smbj:0.12.1")
-    implementation("org.slf4j:slf4j-api:1.7.36")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     // Unit test
     testImplementation("junit:junit:4.13.2")

@@ -113,11 +113,9 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun LoginScreen(onLoginSuccess: (SmpCredentials) -> Unit) {
-    var host by remember { mutableStateOf(BuildConfig.SMB_DEFAULT_HOST) }
-    var share by remember { mutableStateOf(BuildConfig.SMB_DEFAULT_SHARE) }
-    var path by remember { mutableStateOf(BuildConfig.SMB_DEFAULT_PATH) }
-    var username by remember { mutableStateOf(BuildConfig.SMB_DEFAULT_USERNAME) }
+fun LoginScreen(onLoginSuccess: (VpsCredentials) -> Unit) {
+    var baseUrl by remember { mutableStateOf(BuildConfig.VPS_BASE_URL) }
+    var username by remember { mutableStateOf(BuildConfig.VPS_DEFAULT_USERNAME) }
     var password by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -140,32 +138,12 @@ fun LoginScreen(onLoginSuccess: (SmpCredentials) -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text("Photo Frame Setup", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                Text("Enter credentials for your SMB photo folder", fontSize = 14.sp, color = Color(0xFFAAAAAA))
-                // Host / Share / Path row
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(
-                        value = host,
-                        onValueChange = { host = it },
-                        label = { Text("Host") },
-                        placeholder = { Text("nas.example.local") },
-                        modifier = Modifier.weight(1f),
-                        singleLine = true,
-                        colors = textFieldColors()
-                    )
-                    OutlinedTextField(
-                        value = share,
-                        onValueChange = { share = it },
-                        label = { Text("Share") },
-                        modifier = Modifier.weight(0.6f),
-                        singleLine = true,
-                        colors = textFieldColors()
-                    )
-                }
+                Text("Sign in to the VPS photo frame", fontSize = 14.sp, color = Color(0xFFAAAAAA))
                 OutlinedTextField(
-                    value = path,
-                    onValueChange = { path = it },
-                    label = { Text("Folder path inside share") },
-                    placeholder = { Text("Photos/Frame") },
+                    value = baseUrl,
+                    onValueChange = { baseUrl = it },
+                    label = { Text("Photo Frame server") },
+                    placeholder = { Text("https://example.com/photoframe") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     colors = textFieldColors()
@@ -194,21 +172,23 @@ fun LoginScreen(onLoginSuccess: (SmpCredentials) -> Unit) {
                 }
                 Button(
                     onClick = {
+                        if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
+                            error = "Enter an http:// or https:// server URL"
+                            return@Button
+                        }
                         if (username.isBlank() || password.isBlank()) {
                             error = "Username and password required"
                             return@Button
                         }
                         isLoading = true
                         error = null
-                        val creds = SmpCredentials(
-                            host = host.trim(),
-                            share = share.trim(),
-                            path = path.trim().trim('/'),
+                        val creds = VpsCredentials(
+                            baseUrl = baseUrl.trim().trimEnd('/'),
                             username = username.trim(),
                             password = password
                         )
                         scope.launch {
-                            val result = SmbPhotoRepository.testConnection(creds)
+                            val result = VpsPhotoRepository.testConnection(creds)
                             isLoading = false
                             if (result.isSuccess) {
                                 // Even 0 photos is success — just empty frame, but connection ok
@@ -216,10 +196,9 @@ fun LoginScreen(onLoginSuccess: (SmpCredentials) -> Unit) {
                             } else {
                                 val ex = result.exceptionOrNull()
                                 error = when {
-                                    ex?.message?.contains("LOGON_FAILURE", true) == true || ex.toString().contains("STATUS_LOGON_FAILURE", true) -> "Invalid username or password"
-                                    ex?.message?.contains("unknown host", true) == true || ex.toString().contains("UnknownHost", true) -> "Host not found. Check the configured host and fallback host."
-                                    ex?.message?.contains("STATUS_BAD_NETWORK_NAME", true) == true -> "SMB share not found"
-                                    ex?.message?.contains("STATUS_OBJECT_NAME_NOT_FOUND", true) == true -> "Photo folder not found"
+                                    ex?.message?.contains("HTTP 401", true) == true -> "Invalid VPS username or password"
+                                    ex?.message?.contains("unknown host", true) == true || ex.toString().contains("UnknownHost", true) -> "VPS server not found"
+                                    ex?.message?.contains("HTTP 404", true) == true -> "VPS Photo Frame endpoint not found"
                                     ex != null -> "Connection failed. Check the settings and try again."
                                     else -> "Connection failed"
                                 }
@@ -239,7 +218,7 @@ fun LoginScreen(onLoginSuccess: (SmpCredentials) -> Unit) {
                     }
                 }
                 Text(
-                    "Credentials are encrypted on this device. The photo folder is checked every 60 seconds.",
+                    "Credentials are encrypted on this device. VPS photos are checked every 60 seconds.",
                     fontSize = 11.sp,
                     color = Color(0xFF777777)
                 )
@@ -260,9 +239,9 @@ fun textFieldColors() = OutlinedTextFieldDefaults.colors(
 )
 
 @Composable
-fun PhotoFrameScreen(creds: SmpCredentials, onExit: () -> Unit) {
+fun PhotoFrameScreen(creds: VpsCredentials, onExit: () -> Unit) {
     val context = LocalContext.current
-    var remotePhotos by remember { mutableStateOf<List<SmbPhotoRepository.SmbPhoto>>(emptyList()) }
+    var remotePhotos by remember { mutableStateOf<List<VpsPhotoRepository.VpsPhoto>>(emptyList()) }
     var allLocalFiles by remember { mutableStateOf<List<File>>(emptyList()) }
     var displayFiles by remember { mutableStateOf<List<File>>(emptyList()) }
     var currentIndex by remember { mutableStateOf(0) }
@@ -305,13 +284,13 @@ fun PhotoFrameScreen(creds: SmpCredentials, onExit: () -> Unit) {
             try {
                 isLoading = remotePhotos.isEmpty()
                 error = null
-                val remotes = SmbPhotoRepository.listRemotePhotos(creds)
+                val remotes = VpsPhotoRepository.listRemotePhotos(creds)
                 remotePhotos = remotes
                 if (remotes.isEmpty()) {
                     allLocalFiles = emptyList()
                     error = "No photos found in the configured folder."
                 } else {
-                    val files = SmbPhotoRepository.ensurePhotosCached(context, creds, remotes)
+                    val files = VpsPhotoRepository.ensurePhotosCached(context, creds, remotes)
                     allLocalFiles = files
                     if (files.isEmpty() && remotes.isNotEmpty()) {
                         error = "Failed to download photos (${remotes.size} found)."
@@ -598,7 +577,7 @@ fun PhotoFrameScreen(creds: SmpCredentials, onExit: () -> Unit) {
                         Text(
                             if (allLocalFiles.isNotEmpty() && displayFiles.isEmpty()) {
                                 if (isPortraitDisplay) "Add portrait photos to see them here" else "Add landscape photos to see them here"
-                            } else "Check the configured SMB photo folder.",
+                            } else "Check the VPS Photo Frame server and credentials.",
                             color = Color(0xFF888888),
                             fontSize = 12.sp
                         )
@@ -614,9 +593,9 @@ fun PhotoFrameScreen(creds: SmpCredentials, onExit: () -> Unit) {
                             scope.launch {
                                 isLoading = true
                                 try {
-                                    val remotes = SmbPhotoRepository.listRemotePhotos(creds)
+                                    val remotes = VpsPhotoRepository.listRemotePhotos(creds)
                                     remotePhotos = remotes
-                                    allLocalFiles = SmbPhotoRepository.ensurePhotosCached(context, creds, remotes)
+                                    allLocalFiles = VpsPhotoRepository.ensurePhotosCached(context, creds, remotes)
                                 } catch (e: Exception) { error = e.message }
                                 isLoading = false
                             }
