@@ -245,6 +245,7 @@ fun PhotoFrameScreen(creds: VpsCredentials, onExit: () -> Unit) {
     var allLocalFiles by remember { mutableStateOf<List<File>>(emptyList()) }
     var displayFiles by remember { mutableStateOf<List<File>>(emptyList()) }
     var currentIndex by remember { mutableStateOf(0) }
+    var loadedPhoto by remember { mutableStateOf<File?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var showExitButton by remember { mutableStateOf(false) }
@@ -290,7 +291,12 @@ fun PhotoFrameScreen(creds: VpsCredentials, onExit: () -> Unit) {
                     allLocalFiles = emptyList()
                     error = "No photos found in the configured folder."
                 } else {
-                    val files = VpsPhotoRepository.ensurePhotosCached(context, creds, remotes)
+                    val files = VpsPhotoRepository.ensurePhotosCached(context, creds, remotes) { ready ->
+                        if (displayFiles.isEmpty()) {
+                            allLocalFiles = ready
+                            isLoading = false
+                        }
+                    }
                     allLocalFiles = files
                     if (files.isEmpty() && remotes.isNotEmpty()) {
                         error = "Failed to download photos (${remotes.size} found)."
@@ -323,8 +329,8 @@ fun PhotoFrameScreen(creds: VpsCredentials, onExit: () -> Unit) {
             filtered.map(File::getAbsolutePath).toSet()
         if (!samePhotoSet) {
             val previouslyShown = displayFiles.getOrNull(currentIndex)
-            displayFiles = randomizedPhotoOrder(filtered, previouslyShown)
-            currentIndex = 0
+            displayFiles = reconcilePhotoOrder(displayFiles, filtered)
+            currentIndex = displayFiles.indexOf(previouslyShown).coerceAtLeast(0)
         } else if (currentIndex >= filtered.size) {
             currentIndex = 0
         }
@@ -352,9 +358,10 @@ fun PhotoFrameScreen(creds: VpsCredentials, onExit: () -> Unit) {
         }
     }
 
-    // Slideshow timer 10s — reshuffles after every complete pass.
-    LaunchedEffect(displayFiles.size) {
-        while (true) {
+    val currentPhoto = displayFiles.getOrNull(currentIndex)
+    // Each successfully decoded photo gets its own full ten seconds on screen.
+    LaunchedEffect(currentPhoto, loadedPhoto, displayFiles.size) {
+        if (currentPhoto != null && loadedPhoto == currentPhoto) {
             delay(10_000L)
             showNextPhoto()
         }
@@ -420,7 +427,9 @@ fun PhotoFrameScreen(creds: VpsCredentials, onExit: () -> Unit) {
                 ) { f ->
                     // Apple-like Ken Burns: subtle 6% scale over 10s while photo is on screen
                     var kenTarget by remember(f) { mutableStateOf(1f) }
-                    LaunchedEffect(f) {
+                    LaunchedEffect(f, loadedPhoto) {
+                        kenTarget = 1f
+                        if (loadedPhoto != f) return@LaunchedEffect
                         // start slightly delayed so entrance scale settles first
                         kotlinx.coroutines.delay(400)
                         kenTarget = 1.06f
@@ -479,9 +488,19 @@ fun PhotoFrameScreen(creds: VpsCredentials, onExit: () -> Unit) {
                                 .fillMaxSize()
                                 .clip(RoundedCornerShape(0.dp))
                                 .graphicsLayer(
-                                    scaleX = if (isPortraitDisplay) 1f else kenScale,
-                                    scaleY = if (isPortraitDisplay) 1f else kenScale
+                                    scaleX = kenScale,
+                                    scaleY = kenScale
                                 ),
+                            onSuccess = {
+                                if (f == currentPhoto) {
+                                    loadedPhoto = f
+                                    Log.i("PhotoFrame", "Displaying ${f.name}")
+                                }
+                            },
+                            onError = {
+                                Log.w("PhotoFrame", "Cannot display ${f.name}", it.result.throwable)
+                                allLocalFiles = allLocalFiles.filterNot { candidate -> candidate == f }
+                            },
                             contentScale = if (isPortraitDisplay) {
                                 ContentScale.Fit
                             } else {
@@ -595,7 +614,12 @@ fun PhotoFrameScreen(creds: VpsCredentials, onExit: () -> Unit) {
                                 try {
                                     val remotes = VpsPhotoRepository.listRemotePhotos(creds)
                                     remotePhotos = remotes
-                                    allLocalFiles = VpsPhotoRepository.ensurePhotosCached(context, creds, remotes)
+                                    allLocalFiles = VpsPhotoRepository.ensurePhotosCached(context, creds, remotes) { ready ->
+                                        if (displayFiles.isEmpty()) {
+                                            allLocalFiles = ready
+                                            isLoading = false
+                                        }
+                                    }
                                 } catch (e: Exception) { error = e.message }
                                 isLoading = false
                             }

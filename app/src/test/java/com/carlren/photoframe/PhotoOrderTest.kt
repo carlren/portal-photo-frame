@@ -7,6 +7,13 @@ import org.junit.Test
 
 class PhotoOrderTest {
     @Test
+    fun refresh_preservesPassOrderAndAppendsNewPhotos() {
+        val result = reconcilePhotoOrder(listOf("three", "one", "two"), listOf("one", "two", "three", "four"))
+        assertEquals(listOf("three", "one", "two", "four"), result)
+        assertEquals(listOf("three", "two"), reconcilePhotoOrder(result, listOf("two", "three")))
+    }
+
+    @Test
     fun randomizedOrder_preservesEveryPhoto() {
         val photos = listOf("one", "two", "three", "four")
 

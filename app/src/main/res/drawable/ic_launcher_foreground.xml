@@ -3,19 +3,23 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Frame and photograph fit inside Android's adaptive-icon safe area. -->
     <path
-        android:fillColor="#000000"
-        android:pathData="M0,0h108v108h-108z" />
+        android:fillColor="#C99059"
+        android:pathData="M30,29h48a4,4 0,0 1,4 4v42a4,4 0,0 1,-4 4h-48a4,4 0,0 1,-4 -4v-42a4,4 0,0 1,4 -4z" />
     <path
-        android:fillColor="#B8F3E6"
-        android:pathData="M54,14a40,40 0,1 0,0.1 0M54,22a32,32 0,1 1,-0.1 0" />
+        android:fillColor="#F7EFE2"
+        android:pathData="M33,36h42v36h-42z" />
     <path
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="7"
-        android:strokeLineCap="round"
-        android:fillColor="@android:color/transparent"
-        android:pathData="M54,54L54,32M54,54L72,64" />
+        android:fillColor="#78C9DE"
+        android:pathData="M38,41h32v26h-32z" />
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M50,50h8v8h-8z" />
+        android:fillColor="#FFE39B"
+        android:pathData="M64,48m-4,0a4,4 0,1 0,8 0a4,4 0,1 0,-8 0" />
+    <path
+        android:fillColor="#568F87"
+        android:pathData="M38,61l11,-12l16,18h-27z" />
+    <path
+        android:fillColor="#256B63"
+        android:pathData="M49,67l12,-13l9,10v3z" />
 </vector>

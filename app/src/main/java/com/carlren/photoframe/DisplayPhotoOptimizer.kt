@@ -81,7 +81,7 @@ object DisplayPhotoOptimizer {
             output
         } catch (e: Exception) {
             partial.delete()
-            Log.w(TAG, "Display optimization failed (${e.javaClass.simpleName})")
+            Log.w(TAG, "Display optimization failed for ${source.name} (${e.javaClass.simpleName})")
             null
         }
     }

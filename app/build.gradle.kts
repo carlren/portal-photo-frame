@@ -24,12 +24,13 @@ android {
         applicationId = "com.carlren.photoframe"
         minSdk = 28
         targetSdk = 34
-        versionCode = 5
-        versionName = "1.4.0"
+        versionCode = 9
+        versionName = "1.4.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         val defaultVpsUrl = localConfig("photoFrame.vps.baseUrl").ifBlank { "https://example.com/photoframe" }
         buildConfigField("String", "VPS_BASE_URL", defaultVpsUrl.asBuildConfigString())
         buildConfigField("String", "VPS_DEFAULT_USERNAME", localConfig("photoFrame.vps.username").asBuildConfigString())
+        buildConfigField("String", "VPS_DEFAULT_PASSWORD", localConfig("photoFrame.vps.password").asBuildConfigString())
         buildConfigField("String", "WEATHER_LOCATION_NAME", localConfig("photoFrame.weather.locationName").asBuildConfigString())
         buildConfigField("String", "WEATHER_LATITUDE", localConfig("photoFrame.weather.latitude").asBuildConfigString())
         buildConfigField("String", "WEATHER_LONGITUDE", localConfig("photoFrame.weather.longitude").asBuildConfigString())

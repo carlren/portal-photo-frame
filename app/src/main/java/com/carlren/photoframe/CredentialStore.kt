@@ -45,6 +45,13 @@ object CredentialStore {
     }
 
     fun load(context: Context): VpsCredentials? {
+        if (BuildConfig.VPS_DEFAULT_USERNAME.isNotBlank() && BuildConfig.VPS_DEFAULT_PASSWORD.isNotBlank()) {
+            return VpsCredentials(
+                BuildConfig.VPS_BASE_URL,
+                BuildConfig.VPS_DEFAULT_USERNAME,
+                BuildConfig.VPS_DEFAULT_PASSWORD
+            )
+        }
         val p = prefs(context)
         val baseUrl = p.getString(KEY_BASE_URL, null) ?: return null
         val username = p.getString(KEY_USERNAME, null) ?: return null

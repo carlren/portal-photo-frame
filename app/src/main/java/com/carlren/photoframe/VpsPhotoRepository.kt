@@ -67,14 +67,52 @@ object VpsPhotoRepository {
     suspend fun ensurePhotosCached(
         context: Context,
         creds: VpsCredentials,
-        remotePhotos: List<VpsPhoto>
+        remotePhotos: List<VpsPhoto>,
+        onPhotosReady: suspend (List<File>) -> Unit = {}
     ): List<File> = withContext(Dispatchers.IO) {
-        buildList {
-            for (photo in remotePhotos) {
-                downloadPhoto(context, creds, photo)?.let { file ->
-                    add(DisplayPhotoOptimizer.prepare(context, file) ?: file)
+        val files = mutableListOf<File>()
+        // Show cached photos first, then publish each new download as it finishes.
+        val cacheDir = File(context.cacheDir, CACHE_DIR)
+        val ordered = remotePhotos.sortedBy { !File(cacheDir, it.name).isFile }
+        for (photo in ordered) {
+            downloadPhoto(context, creds, photo)?.let { file ->
+                val display = DisplayPhotoOptimizer.prepare(context, file)
+                    ?: downloadPreview(context, creds, photo)
+                if (display != null) {
+                    files.add(display)
+                    withContext(Dispatchers.Main) { onPhotosReady(files.toList()) }
                 }
             }
+        }
+        files
+    }
+
+    private fun downloadPreview(context: Context, creds: VpsCredentials, photo: VpsPhoto): File? {
+        val directory = File(context.cacheDir, DisplayPhotoOptimizer.CACHE_DIR).apply { mkdirs() }
+        val output = File(directory, "${photo.name}.preview-${photo.modifiedAt}-${photo.sizeBytes}.jpg")
+        if (output.isFile && output.length() > 0) return output
+        val partial = File(directory, "${output.name}.part")
+        var connection: HttpURLConnection? = null
+        return try {
+            val path = URLEncoder.encode(photo.remotePath, "UTF-8")
+            connection = authenticatedGet(creds,
+                "/api/thumb?kind=frame&variant=preview&path=$path&mtime=${photo.modifiedAt}&size=${photo.sizeBytes}")
+            requireSuccess(connection)
+            connection.inputStream.use { input ->
+                FileOutputStream(partial).use { input.copyTo(it) }
+            }
+            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeFile(partial.absolutePath, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw IOException("Invalid preview image")
+            if (!partial.renameTo(output)) throw IOException("Unable to save preview")
+            Log.i(TAG, "Using VPS JPEG preview for ${photo.name}")
+            output
+        } catch (exception: Exception) {
+            Log.w(TAG, "Preview failed for ${photo.name} (${exception.javaClass.simpleName})")
+            null
+        } finally {
+            partial.delete()
+            connection?.disconnect()
         }
     }
 
